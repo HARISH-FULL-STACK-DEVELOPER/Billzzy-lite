@@ -4,7 +4,7 @@ import React, { useState, useEffect, FC, ChangeEvent, useRef } from "react";
 import * as XLSX from "xlsx";
 import { Upload, Edit2, Plus, X, Trash2, Search, Image as ImageIcon, Camera } from "lucide-react";
 import { motion, useAnimationControls, PanInfo } from "framer-motion";
-import { Html5Qrcode, Html5QrcodeScannerState } from "html5-qrcode";
+import { Html5Qrcode, Html5QrcodeCameraScanConfig } from "html5-qrcode";
 
 // --- INTERFACES AND UTILITIES ---
 export interface Product {
@@ -57,7 +57,7 @@ const MobileProductCard: FC<MobileProductCardProps> = ({ product, isSwiped, onSw
     return quantity * sellingPrice * (1 + gstRate / 100);
   };
 
-  const hasValidImage = product.image && product.image.startsWith('/');
+  const hasValidImage = !!product.image && product.image.startsWith('/');
 
   return (
     <div className="relative w-full bg-gray-200 rounded-lg overflow-hidden shadow-sm">
@@ -115,11 +115,12 @@ const Inventory: FC = () => {
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const readerId = "qr-reader"; // Define a constant ID for the reader element
+  const readerId = "qr-reader"; // Element ID where html5-qrcode will render
 
   type NewProduct = Omit<Product, 'id'> & { sku?: string };
   const [newProduct, setNewProduct] = useState<NewProduct>({ name: "", sku: "", quantity: 0, buyingPrice: 0, sellingPrice: 0, gstRate: 0, image: '' });
 
+  // Fetch products
   useEffect(() => {
     const fetchProducts = async () => {
       try {
@@ -132,42 +133,102 @@ const Inventory: FC = () => {
     fetchProducts();
   }, []);
 
-  // --- Effect for managing the barcode scanner ---
+  // Robust scanner startup & cleanup
   useEffect(() => {
-    if (isScannerOpen) {
-      const scanner = new Html5Qrcode(readerId);
-      scannerRef.current = scanner;
+    let mounted = true;
+    if (!isScannerOpen) return;
 
-      const onScanSuccess = (decodedText: string) => {
-        if (showEditModal && editingProduct) {
-          setEditingProduct(prev => prev ? { ...prev, sku: decodedText } : null);
-        } else {
-          setNewProduct(prev => ({ ...prev, sku: decodedText }));
+    const startScanner = async () => {
+      try {
+        // create scanner instance (renders into element with id readerId)
+        const scanner = new Html5Qrcode(readerId, /* verbose= */ false);
+        scannerRef.current = scanner;
+
+        // config: lower fps and a square qrbox for mobile
+        const config: Html5QrcodeCameraScanConfig = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+        // helper to choose back camera if available
+        const chooseCameraId = async (): Promise<string | { facingMode: "environment" } > => {
+          try {
+            const cameras = await Html5Qrcode.getCameras();
+            if (Array.isArray(cameras) && cameras.length > 0) {
+              // prefer camera whose label suggests back camera (common on many devices)
+              const backCam = cameras.find(cam => /back|rear|environment/i.test(cam.label));
+              return (backCam?.id) ?? cameras[cameras.length - 1].id; // fallback to last camera
+            }
+            // fallback to facingMode approach if no camera list
+            return { facingMode: "environment" };
+          } catch (err) {
+            // If getCameras fails (permissions or not supported), fallback
+            return { facingMode: "environment" };
+          }
+        };
+
+        const cameraOrFacing = await chooseCameraId();
+
+        const onScanSuccess = (decodedText: string) => {
+          // Put scanned text into SKU field depending on modal mode
+          if (!mounted) return;
+          if (showEditModal && editingProduct) {
+            setEditingProduct(prev => prev ? { ...prev, sku: decodedText } : null);
+          } else {
+            setNewProduct(prev => ({ ...prev, sku: decodedText }));
+          }
+          // close scanner after a successful read
+          setIsScannerOpen(false);
+        };
+
+        const onScanFailure = (_error: any) => {
+          // ignore frequent not-found errors, optionally log if needed
+        };
+
+        // Try to start scanner
+        try {
+          // If cameraOrFacing is an id string, start with that deviceId
+          if (typeof cameraOrFacing === "string") {
+            await scanner.start(cameraOrFacing, config, onScanSuccess, onScanFailure);
+          } else {
+            // start using facingMode constraint
+            await scanner.start(cameraOrFacing, config, onScanSuccess, onScanFailure);
+          }
+        } catch (startErr) {
+          // second-chance: try starting with facingMode explicitly (some devices prefer this)
+          try {
+            await scanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure);
+          } catch (err) {
+            console.error("Failed to start scanner (both attempts):", startErr, err);
+            alert("Unable to start camera scanner. Please make sure camera permissions are allowed and you're on HTTPS (Ngrok).");
+            setIsScannerOpen(false);
+          }
         }
+      } catch (err) {
+        console.error("Scanner init error:", err);
+        alert("Scanner initialization failed.");
         setIsScannerOpen(false);
-      };
-
-      const onScanFailure = (error: any) => {
-        // You can add logic here to handle scan failures if needed
-        // console.warn(`Code scan error = ${error}`);
-      };
-
-      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-      
-      // Start scanning
-      scanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
-        .catch(err => console.error("Unable to start scanning.", err));
-    }
-
-    // Cleanup function
-    return () => {
-      if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop()
-          .then(() => console.log("Scanner stopped successfully."))
-          .catch(err => console.error("Failed to stop scanner.", err));
       }
     };
-  }, [isScannerOpen, showEditModal, editingProduct]); // Dependency array
+
+    startScanner();
+
+    // cleanup on unmount or when scanner is closed
+    return () => {
+      mounted = false;
+      const scanner = scannerRef.current;
+      if (scanner) {
+        scanner.stop().catch((err) => {
+          // stopping may fail if already stopped; ignore
+        }).finally(() => {
+          try {
+            scanner.clear(); // remove DOM elements and free resources
+          } catch (e) {
+            // ignore clear errors
+          }
+          scannerRef.current = null;
+        });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isScannerOpen, showEditModal, editingProduct]); // re-run when scanner toggles or modal mode changes
 
   const filteredProducts = products.filter(product =>
     product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -216,25 +277,25 @@ const Inventory: FC = () => {
     reader.readAsArrayBuffer(file);
   };
 
-    const handleImageChange = (e: ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setImageFile(file);
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setImagePreview(reader.result as string);
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-
-    const resetImageState = () => {
-        setImageFile(null);
-        setImagePreview(null);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
+  const handleImageChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
+  };
+
+  const resetImageState = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
 
   const openEditModal = (product: Product): void => {
     setEditingProduct(product);
@@ -254,25 +315,25 @@ const Inventory: FC = () => {
     let imageUrl = editingProduct.image;
 
     if (imageFile) {
-        const formData = new FormData();
-        formData.append('file', imageFile);
+      const formData = new FormData();
+      formData.append('file', imageFile);
 
-        try {
-            const uploadResponse = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData,
-            });
-            const uploadData = await uploadResponse.json();
-            if (uploadData.success) {
-                imageUrl = uploadData.path;
-            } else {
-                throw new Error('Image upload failed');
-            }
-        } catch (error) {
-            console.error("Error uploading image:", error);
-            alert('Failed to upload image. Please try again.');
-            return;
+      try {
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        const uploadData = await uploadResponse.json();
+        if (uploadData.success) {
+          imageUrl = uploadData.path;
+        } else {
+          throw new Error('Image upload failed');
         }
+      } catch (error) {
+        console.error("Error uploading image:", error);
+        alert('Failed to upload image. Please try again.');
+        return;
+      }
     }
 
     const updatedProduct = { ...editingProduct, image: imageUrl };
@@ -293,25 +354,25 @@ const Inventory: FC = () => {
   const handleSaveNewProduct = async (): Promise<void> => {
     let imageUrl = '';
     if (imageFile) {
-        const formData = new FormData();
-        formData.append('file', imageFile);
+      const formData = new FormData();
+      formData.append('file', imageFile);
 
-        try {
-            const uploadResponse = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData,
-            });
-            const uploadData = await uploadResponse.json();
-            if (uploadData.success) {
-                imageUrl = uploadData.path;
-            } else {
-                throw new Error('Image upload failed');
-            }
-        } catch (error) {
-            console.error("Error uploading image:", error);
-            alert('Failed to upload image. Please try again.');
-            return;
+      try {
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        const uploadData = await uploadResponse.json();
+        if (uploadData.success) {
+          imageUrl = uploadData.path;
+        } else {
+          throw new Error('Image upload failed');
         }
+      } catch (error) {
+        console.error("Error uploading image:", error);
+        alert('Failed to upload image. Please try again.');
+        return;
+      }
     }
 
     const productToSave = { ...newProduct, image: imageUrl };
@@ -346,7 +407,7 @@ const Inventory: FC = () => {
     }
     setSwipedProductId(null);
   };
-  
+
   const handleScanBarcode = () => {
     setIsScannerOpen(true);
   };

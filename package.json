@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.17.0",
+    "@zxing/browser": "^0.1.5",
     "framer-motion": "^12.23.22",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.545.0",
