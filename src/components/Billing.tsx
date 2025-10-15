@@ -87,21 +87,13 @@
 
 //   // QR Scanner
 //   useEffect(() => {
-//     if (!scanning) {
-//       if (scannerRef.current) {
-//         scannerRef.current.stop().then(() => scannerRef.current?.clear());
-//         scannerRef.current = null;
-//       }
-//       return;
-//     }
+//     const startScanner = async () => {
+//       if (!scanning) return;
 
-//     const initScanner = async () => {
 //       const qrRegion = document.getElementById(qrRegionId);
 //       if (!qrRegion) return;
 
-//       const html5Qrcode = new Html5Qrcode(qrRegionId, {
-//         formatsToSupport: ['QR_CODE', 'EAN_13', 'CODE_128'],
-//       });
+//       const html5Qrcode = new Html5Qrcode(qrRegionId);
 //       scannerRef.current = html5Qrcode;
 
 //       try {
@@ -124,13 +116,27 @@
 //       }
 //     };
 
-//     // Delay to ensure DOM element exists
-//     const timer = setTimeout(initScanner, 100);
+//     // Stop previous scanner if any
+//     if (scannerRef.current) {
+//       scannerRef.current
+//         .stop()
+//         .then(() => scannerRef.current?.clear())
+//         .catch(() => {})
+//         .finally(() => {
+//           scannerRef.current = null;
+//           if (scanning) startScanner();
+//         });
+//     } else {
+//       if (scanning) startScanner();
+//     }
+
 //     return () => {
-//       clearTimeout(timer);
 //       if (scannerRef.current) {
-//         scannerRef.current.stop().then(() => scannerRef.current?.clear());
-//         scannerRef.current = null;
+//         scannerRef.current
+//           .stop()
+//           .then(() => scannerRef.current?.clear())
+//           .catch(() => {})
+//           .finally(() => (scannerRef.current = null));
 //       }
 //     };
 //   }, [scanning, inventory]);
@@ -427,7 +433,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'react-qr-code';
-import { Scan, Trash2, Send, CreditCard } from 'lucide-react';
+import { Scan, Trash2, Send, CreditCard, ShoppingCart, Plus, X } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 
 type CartItem = {
@@ -541,7 +547,6 @@ export default function BillingPage() {
       }
     };
 
-    // Stop previous scanner if any
     if (scannerRef.current) {
       scannerRef.current
         .stop()
@@ -644,117 +649,164 @@ export default function BillingPage() {
   };
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col">
       {/* Header */}
-      <div className="p-4 bg-white shadow-md flex justify-between items-center gap-3">
-        <span className="font-bold text-[#5a4fcf] text-lg">Billing</span>
-        <button
-          onClick={() => setScanning((prev) => !prev)}
-          className="flex items-center gap-2 px-4 py-2 bg-[#5a4fcf] text-white rounded-xl font-semibold hover:bg-[#4a3faf]"
-        >
-          <Scan className="w-5 h-5" />
-          {scanning ? 'Stop' : 'Scan'}
-        </button>
+      <div className="bg-gradient-to-r from-[#5a4fcf] to-[#7b6fd8] text-white px-4 py-6 shadow-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
+              <ShoppingCart className="w-7 h-7" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">Billing</h1>
+              <p className="text-sm text-white/80">{cart.length} items in cart</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setScanning((prev) => !prev)}
+            className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-bold transition-all shadow-lg ${
+              scanning
+                ? 'bg-red-500 hover:bg-red-600'
+                : 'bg-white text-[#5a4fcf] hover:shadow-xl'
+            }`}
+          >
+            {scanning ? <X className="w-5 h-5" /> : <Scan className="w-5 h-5" />}
+            {scanning ? 'Stop' : 'Scan'}
+          </button>
+        </div>
       </div>
 
-      {/* Main */}
-      <div className="flex flex-col lg:flex-row flex-1 overflow-hidden gap-4 p-4">
-        {/* Left - Cart */}
-        <div className="flex-1 flex flex-col">
-          {/* Add Product */}
-          <div className="bg-white rounded-2xl p-4 lg:p-6 shadow-sm mb-5">
-            <div className="flex flex-col gap-3">
-              <div className="relative" ref={suggestionsRef}>
-                <input
-                  type="text"
-                  placeholder="Search or enter product name"
-                  className="w-full border-2 border-gray-200 p-3 rounded-xl focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] outline-none transition-all"
-                  value={productName}
-                  onChange={(e) => {
-                    setProductName(e.target.value);
-                    setShowSuggestions(true);
-                  }}
-                />
-                {showSuggestions && suggestions.length > 0 && (
-                  <div className="absolute z-50 bg-white border-2 border-gray-200 mt-2 w-full rounded-xl shadow-lg max-h-64 overflow-auto">
-                    {suggestions.map((s) => (
-                      <button
-                        key={s.id}
-                        onClick={() => onSelectSuggestion(s)}
-                        className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors"
-                      >
-                        <div className="flex justify-between items-center">
-                          <span className="font-semibold text-gray-900">{s.name}</span>
-                          <span className="text-[#5a4fcf] font-bold">₹{s.sellingPrice}</span>
-                        </div>
-                        <div className="text-sm text-gray-500 mt-1">{s.quantity} in stock</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+      {/* Main Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+        {/* Scanner */}
+        {scanning && (
+          <div className="bg-white p-4 rounded-2xl shadow-lg border-2 border-[#5a4fcf]">
+            <h3 className="font-bold text-[#5a4fcf] mb-3 text-center text-lg">
+              Scanner Active - Point at QR/Barcode
+            </h3>
+            <div
+              id={qrRegionId}
+              className="w-full rounded-xl overflow-hidden"
+              style={{ height: 300 }}
+            />
+          </div>
+        )}
 
-              <div className="flex gap-3">
+        {/* Add Product Section */}
+        <div className="bg-white rounded-2xl p-4 shadow-md">
+          <h3 className="font-bold text-gray-900 mb-3 text-lg flex items-center gap-2">
+            <Plus className="w-5 h-5 text-[#5a4fcf]" />
+            Add Product
+          </h3>
+          <div className="flex flex-col gap-3">
+            <div className="relative" ref={suggestionsRef}>
+              <input
+                type="text"
+                placeholder="Search or enter product name"
+                className="w-full border-2 border-gray-200 p-3 rounded-2xl focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] outline-none transition-all font-medium"
+                value={productName}
+                onChange={(e) => {
+                  setProductName(e.target.value);
+                  setShowSuggestions(true);
+                }}
+              />
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute z-50 bg-white border-2 border-gray-200 mt-2 w-full rounded-2xl shadow-xl max-h-64 overflow-auto">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => onSelectSuggestion(s)}
+                      className="w-full text-left px-4 py-3 hover:bg-gradient-to-r hover:from-[#5a4fcf]/10 hover:to-[#7b6fd8]/10 border-b border-gray-100 last:border-0 transition-all"
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-gray-900">{s.name}</span>
+                        <span className="text-[#5a4fcf] font-bold text-lg">₹{s.sellingPrice}</span>
+                      </div>
+                      <div className="text-sm text-gray-500 mt-1 font-medium">
+                        {s.quantity} in stock
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <div className="relative flex-1">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold">
+                  ₹
+                </span>
                 <input
                   type="number"
                   placeholder="Price"
-                  className="flex-1 border-2 border-gray-200 p-2.5 rounded-xl focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] outline-none transition-all text-sm"
+                  className="w-full border-2 border-gray-200 pl-8 pr-4 py-3 rounded-2xl focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] outline-none transition-all font-bold"
                   value={productPrice || ''}
                   onChange={(e) => setProductPrice(parseFloat(e.target.value) || 0)}
                 />
-                <button
-                  onClick={handleManualAdd}
-                  className="bg-green-500 text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-green-600 transition-all shadow-md"
-                >
-                  Add
-                </button>
               </div>
+              <button
+                onClick={handleManualAdd}
+                className="bg-gradient-to-r from-green-500 to-green-600 text-white px-8 py-3 rounded-2xl font-bold hover:shadow-lg transition-all"
+              >
+                Add
+              </button>
             </div>
           </div>
+        </div>
 
-          {/* Cart Items */}
-          <div className="flex-1 overflow-y-auto space-y-3">
+        {/* Cart Items */}
+        {cart.length === 0 ? (
+          <div className="text-center py-12">
+            <ShoppingCart className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+            <p className="text-gray-500 font-medium text-lg">Cart is empty</p>
+            <p className="text-sm text-gray-400 mt-1">Add products to get started</p>
+          </div>
+        ) : (
+          <div className="space-y-3 pb-64">
             {cart.map((product) => (
-              <div key={product.id} className="bg-white rounded-2xl p-4 shadow-sm">
+              <div
+                key={product.id}
+                className="bg-white rounded-2xl p-4 shadow-md border-2 border-gray-100 hover:border-[#5a4fcf] transition-all"
+              >
                 <div className="flex flex-col gap-3">
                   <input
                     type="text"
                     value={product.name}
                     onChange={(e) => editCartItem(product.id, 'name', e.target.value)}
-                    className="border-2 border-gray-200 p-2 rounded-xl font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf]"
+                    className="border-2 border-gray-200 p-3 rounded-xl font-bold text-gray-900 outline-none focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] transition-all"
                   />
                   <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-600">Qty:</span>
+                    <div className="flex items-center gap-3 flex-wrap flex-1">
+                      <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-xl">
+                        <span className="text-sm text-gray-600 font-semibold">Qty:</span>
                         <input
                           type="number"
                           value={product.quantity}
                           onChange={(e) =>
                             editCartItem(product.id, 'quantity', e.target.value)
                           }
-                          className="border-2 border-gray-200 p-2 rounded-xl w-14 text-center font-semibold outline-none focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] text-sm"
+                          className="border-2 border-gray-200 p-2 rounded-lg w-16 text-center font-bold outline-none focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] bg-white"
                           min="1"
                         />
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-600">₹</span>
+                      <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-xl">
+                        <span className="text-sm text-gray-600 font-semibold">₹</span>
                         <input
                           type="number"
                           value={product.price}
                           onChange={(e) =>
                             editCartItem(product.id, 'price', e.target.value)
                           }
-                          className="border-2 border-gray-200 p-2 rounded-xl w-20 text-right font-semibold outline-none focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] text-sm"
+                          className="border-2 border-gray-200 p-2 rounded-lg w-20 text-right font-bold outline-none focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] bg-white"
                         />
                       </div>
-                      <span className="text-sm text-gray-600">
+                      <div className="bg-[#5a4fcf]/10 text-[#5a4fcf] px-4 py-2 rounded-xl font-bold">
                         Total: ₹{(product.quantity * product.price).toFixed(2)}
-                      </span>
+                      </div>
                     </div>
                     <button
                       onClick={() => deleteCartItem(product.id)}
-                      className="bg-red-500 text-white p-3 rounded-xl hover:bg-red-600 transition-all"
+                      className="bg-gradient-to-r from-red-500 to-red-600 text-white p-3 rounded-xl hover:shadow-lg transition-all flex-shrink-0"
                     >
                       <Trash2 className="w-5 h-5" />
                     </button>
@@ -763,69 +815,60 @@ export default function BillingPage() {
               </div>
             ))}
           </div>
-        </div>
-
-        {/* Right - Scanner */}
-        <div className="lg:w-96 flex flex-col gap-4">
-          {scanning && (
-            <div className="bg-white p-4 rounded-xl border-2 border-[#5a4fcf] shadow-lg">
-              <h3 className="font-bold text-[#5a4fcf] mb-3 text-center">Scanner Active</h3>
-              <div
-                id={qrRegionId}
-                className="w-full rounded-xl"
-                style={{ height: 300 }}
-              />
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Footer */}
-      <div className="bg-white border-t-2 border-[#5a4fcf] shadow-2xl p-5">
+      {/* Footer - Payment Section */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t-4 border-[#5a4fcf] shadow-2xl p-4">
         <div className="flex flex-col gap-3 max-w-5xl mx-auto">
-          <div className="flex justify-between text-gray-700 text-lg font-semibold">
-            <span>Grand Total</span>
+          {/* Total */}
+          <div className="flex justify-between items-center bg-gradient-to-r from-[#5a4fcf]/10 to-[#7b6fd8]/10 p-4 rounded-2xl">
+            <span className="text-gray-700 text-lg font-bold">Grand Total</span>
             <span className="text-3xl font-bold text-[#5a4fcf]">
               ₹{totalAmount.toFixed(2)}
             </span>
           </div>
 
+          {/* WhatsApp Input */}
           <input
             type="tel"
             placeholder="WhatsApp number (e.g., 919876543210)"
-            className="w-full border-2 border-gray-200 p-3 rounded-xl focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] outline-none transition-all"
+            className="w-full border-2 border-gray-200 p-3 rounded-2xl focus:ring-2 focus:ring-[#5a4fcf] focus:border-[#5a4fcf] outline-none transition-all font-medium"
             value={whatsappNumber}
             onChange={(e) => setWhatsappNumber(e.target.value)}
           />
 
-          {/* Payment Options */}
-          <div className="flex flex-wrap items-center gap-3 mt-2">
+          {/* Action Buttons */}
+          <div className="flex gap-3">
             <button
               onClick={sendWhatsApp}
-              className="flex-1 bg-green-500 text-white px-6 py-4 rounded-xl font-bold hover:bg-green-600 transition-all shadow-lg flex items-center justify-center gap-2 min-w-[140px]"
+              className="flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-4 rounded-2xl font-bold hover:shadow-lg transition-all flex items-center justify-center gap-2"
             >
               <Send className="w-5 h-5" />
-              Send Bill in Whatsapp
+              Send Bill
             </button>
 
             <button
               onClick={() => setShowPaymentOptions(!showPaymentOptions)}
-              className="bg-blue-500 text-white px-6 py-4 rounded-xl font-bold hover:bg-blue-600 transition-all shadow-lg flex items-center justify-center gap-2 min-w-[120px]"
+              className={`bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-4 rounded-2xl font-bold hover:shadow-lg transition-all flex items-center justify-center gap-2 ${
+                showPaymentOptions ? 'ring-4 ring-blue-300' : ''
+              }`}
             >
               <CreditCard className="w-5 h-5" />
               Payment
             </button>
           </div>
 
+          {/* Payment Options */}
           {showPaymentOptions && (
-            <div className="flex gap-2 flex-wrap mt-2">
+            <div className="flex gap-2 flex-wrap">
               {['Cash', 'UPI', 'QR Code', 'Card'].map((method) => (
                 <button
                   key={method}
                   onClick={() => setSelectedPayment(method)}
-                  className={`px-4 py-2 rounded-xl font-semibold text-sm transition-all ${
+                  className={`px-5 py-3 rounded-2xl font-bold transition-all ${
                     selectedPayment === method
-                      ? 'bg-[#5a4fcf] text-white shadow-lg'
+                      ? 'bg-gradient-to-r from-[#5a4fcf] to-[#7b6fd8] text-white shadow-lg scale-105'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
@@ -835,14 +878,20 @@ export default function BillingPage() {
             </div>
           )}
 
+          {/* QR Code Display */}
           {selectedPayment === 'QR Code' && (
-            <div className="p-4 bg-white border-2 border-[#5a4fcf] rounded-2xl mt-3">
-              <h3 className="text-gray-900 font-bold mb-3 text-center">Scan to Pay</h3>
-              <div className="flex justify-center">
+            <div className="p-5 bg-gradient-to-br from-white to-gray-50 border-2 border-[#5a4fcf] rounded-2xl shadow-xl">
+              <h3 className="text-gray-900 font-bold mb-4 text-center text-xl">
+                Scan to Pay
+              </h3>
+              <div className="flex justify-center bg-white p-4 rounded-2xl">
                 <QRCode value={upiQR} size={200} />
               </div>
-              <p className="text-center mt-2 text-gray-600 text-sm">
-                Pay using any UPI app to <b>{merchantUpi}</b>
+              <p className="text-center mt-4 text-gray-600 font-medium">
+                Pay using any UPI app to <b className="text-[#5a4fcf]">{merchantUpi}</b>
+              </p>
+              <p className="text-center mt-2 text-sm text-gray-500">
+                Amount: <span className="font-bold text-[#5a4fcf] text-lg">₹{totalAmount.toFixed(2)}</span>
               </p>
             </div>
           )}
