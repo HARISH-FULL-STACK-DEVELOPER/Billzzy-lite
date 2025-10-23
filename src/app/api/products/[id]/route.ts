@@ -1,90 +1,84 @@
-
-// // src/app/api/products/[id]/route.ts (Corrected)
-
-// import { PrismaClient } from '@prisma/client';
-// import { NextResponse } from 'next/server';
-
-// const prisma = new PrismaClient();
-
-// // This runs when you want to UPDATE a product
-// export async function PUT(
-//   request: Request,
-//   { params }: { params: Promise<{ id: string }> } // <-- Type updated to Promise
-// ) {
-//   try {
-//     const { id } = await params; // <-- Await params to get the id
-//     const body = await request.json();
-
-//     // It's good practice to not pass the id from the body to the update data
-//     const { id: _, ...updateData } = body;
-
-//     const updatedProduct = await prisma.product.update({
-//       where: { id: id },
-//       data: updateData,
-//     });
-
-//     return NextResponse.json(updatedProduct);
-//   } catch (error) {
-//     console.error("Failed to update product:", error);
-//     return NextResponse.json(
-//       { message: "Failed to update product", error },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-// // This runs when you want to DELETE a product
-// export async function DELETE(
-//   request: Request,
-//   { params }: { params: Promise<{ id: string }> } // <-- Type updated to Promise
-// ) {
-//   try {
-//     const { id } = await params; // <-- Await params to get the id
-
-//     await prisma.product.delete({
-//       where: { id },
-//     });
-
-//     return new NextResponse(null, { status: 204 });
-//   } catch (error) {
-//     console.error("Failed to delete product:", error);
-//     return NextResponse.json(
-//       { message: "Failed to delete product", error },
-//       { status: 500 }
-//     );
-//   }
-// }
-
+// src/app/api/products/[id]/route.ts
 import { NextResponse } from "next/server";
-import Product from "@/models/Product";
-import { sequelize } from "@/models/db";
+import dbConnect from "@/lib/mongodb";
+import Product from "@/models/Product"; 
 
-sequelize.sync();
+// A helper function to transform the MongoDB document.
+const transformProduct = (product: any) => {
+  const transformed = {
+    // Use .toObject() or .lean() before this function is called
+    ...product,
+    id: product._id.toString(),
+  };
+  delete transformed._id;
+  delete transformed.__v;
+  return transformed;
+};
 
-export async function GET() {
-  try {
-    const products = await Product.findAll({ order: [["createdAt", "DESC"]] });
-    return NextResponse.json(products);
-  } catch (error) {
-    console.error("Failed to fetch products:", error);
-    return NextResponse.json({ message: "Failed to fetch products" }, { status: 500 });
-  }
-}
+// --- UPDATE a single product by its ID ---
+export async function PUT(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  await dbConnect();
+  const { id } = params;
 
-export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    if (Array.isArray(body)) {
-      await Product.bulkCreate(body, { ignoreDuplicates: true });
-    } else {
-      await Product.upsert(body);
+    // Find and update the product
+    const updatedProduct = await Product.findByIdAndUpdate(id, body, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!updatedProduct) {
+      return NextResponse.json(
+        { message: `Product with ID ${id} not found.` },
+        { status: 404 }
+      );
     }
 
-    const products = await Product.findAll({ order: [["createdAt", "DESC"]] });
-    return NextResponse.json(products, { status: 201 });
+    // CORRECTED: After updating, fetch the entire updated list of products.
+    // This makes the PUT response consistent with the POST response.
+    const allProductsFromDb = await Product.find({}).sort({ createdAt: -1 }).lean();
+    const allProducts = allProductsFromDb.map(transformProduct);
+    
+    return NextResponse.json(allProducts);
+
   } catch (error) {
-    console.error("Failed to create product:", error);
-    return NextResponse.json({ message: "Failed to create product" }, { status: 500 });
+    console.error("Failed to update product:", error);
+    return NextResponse.json(
+      { message: "Failed to update product", error: `${error}` },
+      { status: 500 }
+    );
+  }
+}
+
+// --- DELETE a single product by its ID ---
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  await dbConnect();
+  const { id } = params;
+
+  try {
+    const deletedProduct = await Product.findByIdAndDelete(id);
+    if (!deletedProduct) {
+      return NextResponse.json(
+        { message: `Product with ID ${id} not found.` },
+        { status: 404 }
+      );
+    }
+    
+    // Return a success response with no body, which is standard for DELETE
+    return new NextResponse(null, { status: 204 });
+  } catch (error) {
+    console.error("Failed to delete product:", error);
+    return NextResponse.json(
+      { message: "Failed to delete product", error: `${error}` },
+      { status: 500 }
+    );
   }
 }
